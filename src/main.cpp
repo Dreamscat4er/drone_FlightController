@@ -138,13 +138,13 @@ uint16_t usToTicks(uint16_t usWidth) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n🚀 Starting drone setup...");
+  Serial.println(" Starting drone setup...");
 
   Wire.begin(SDA_PIN, SCL_PIN);
-  Serial.println("✅ I2C initialized");
+  Serial.println(" I2C initialized");
 
   if (!mpu.begin()) {
-    Serial.println("❌ MPU6050 not found!");
+    Serial.println(" MPU6050 not found!");
     while (1);
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
@@ -152,7 +152,7 @@ void setup() {
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
   // === Gyro Bias Calibration ===
-  Serial.println("🧭 Calibrating gyroscope...");
+  Serial.println(" Calibrating gyroscope...");
   for (int i = 0; i < 2000; i++) {
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
@@ -166,7 +166,7 @@ void setup() {
   gyroBiasY /= 2000.0;
   gyroBiasZ /= 2000.0;
  
-  Serial.println("✅ Gyro bias calibrated");
+  Serial.println(" Gyro bias calibrated");
 
   pinMode(PPM_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(PPM_PIN), handlePPMInterrupt, RISING);
@@ -192,7 +192,7 @@ void setup() {
 
 
   //loopTimer = micros();
-  Serial.println("✅ Setup complete");
+  Serial.println(" Setup complete");
 }
 
 // === Main Loop ===
