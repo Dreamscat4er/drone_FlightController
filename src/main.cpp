@@ -1,434 +1,273 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <esp32-hal-ledc.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
-
-
-//Gyro
-// #define MPU6050_ADDR 0x68
-// #define CONFIG_REGISTER_1 0x1A //LPF config
-// #define CONFIG_REGISTER_2 0x1B //sensitivity config
-// #define DLPF_CFG 0x05 // 10Hz LPF
-// #define FS_SEL 0x08 // +/- 500 deg/s
+// === Pin Configuration ===
 #define SDA_PIN 5
 #define SCL_PIN 6
-//PPM
-#define PPM_PIN 4            // The GPIO pin connected to the PPM signal
-#define CHANNELS 8  
-#define PPM_EOF 3000         // Number of channels in the PPM signal
-#define PWM1_PIN 9           // GPIO pin connected to ESC throttle input
-#define PWM2_PIN 10
-#define PWM3_PIN 11
-#define PWM4_PIN 12      
-#define PWM_FREQ 50     // Frequency of PWM signal in Hz (50 Hz)
-#define REFRESH_PERIOD 20000 //pulse cycle
-#define PWM_RESOLUTION 10 // timer width
-#define PWM_LEVELS ((1 << PWM_RESOLUTION) - 1)//maximum possible number of ticks based on the timer width
-//PID Control
-#define ROTATION_RATE 0.15 // from -75deg/s to 75deg/s (150deg/1000us)
-//GYRO
-float RateRoll, RatePitch, RateYaw;
-float angePitch, angleRoll;
-float CalibrationRoll, CalibrationPitch, CalibrationYaw;
-int SamplesNumber;
-#define RAD_TO_DEG  (180.0 / 3.141592653589793) 
-//PPM
-volatile uint16_t ppmValues[CHANNELS];  // Array to store channel values
-volatile uint32_t lastTime = 0;         // Last time a pulse was detected
-volatile uint8_t currentPulse = 0;      // Current pulse index being processed
+#define PPM_PIN 4
+#define PWM1_PIN 13 // m1 (cw)
+#define PWM2_PIN 10 // m2 (ccw)
+#define PWM3_PIN 11 // m3 (cw)
+#define PWM4_PIN 12 // m4 (ccw)
 
-//PID Control
-uint32_t loopTimer; // PID Control loop timer
-float DesiredRoll, DesiredPitch, DesiredYaw;
-float ErrorRoll, ErrorPitch, ErrorYaw;
-float InputThrottle, InputRoll, InputPitch, InputYaw;
-float PrevErrorRoll, PrevErrorPitch, PrevErrorYaw;
-float PrevItermRoll, PrevItermPitch, PrevItermYaw;
-float PID_Return[] = {0, 0, 0};
-float P_TermRoll = 0.6; float P_TermPitch = P_TermRoll; float P_TermYaw = 2;
-float I_TermRoll = 3.5; float I_TermPitch = I_TermRoll; float I_TermYaw = 12;
-float D_TermRoll = 0.03; float D_TermPitch = D_TermRoll; float D_TermYaw = 0;
+// === Constants ===
+#define CHANNELS 8
+#define PPM_EOF 3000
+#define PWM_FREQ 50 
+#define PWM_RESOLUTION 10
+#define STANDART_PWM_RESOLUTION 16    
+#define REFRESH_PERIOD 20000
+#define PWM_LEVELS (1 << PWM_RESOLUTION)
+#define MAX_ANGLE 30.0
+#define MAX_YAW_RATE 75.0
 
-float P_TermAngle = 4.5; // Proportional gain for angle control
-float I_TermAngle = 0.1; // Integral gain for angle control
-float D_TermAngle = 0.05; // Derivative gain for angle control
-
-float ErrorAngleRoll, ErrorAnglePitch; // Angle errors
-float PrevErrorAngleRoll = 0, PrevErrorAnglePitch = 0;
-float PrevItermAngleRoll = 0, PrevItermAnglePitch = 0;
-float InputRollAngle = 0, InputPitchAngle = 0;
-
-
-
-
-float Motor1_Input, Motor2_Input, Motor3_Input, Motor4_Input;
+// === Global Variables ===
 Adafruit_MPU6050 mpu;
+volatile uint16_t ppmValues[CHANNELS];
+volatile uint32_t lastTime = 0;
+volatile uint8_t currentPulse = 0;
 
-// PPM pulse length calculation
+float angleRoll, anglePitch;
+float rateRoll, ratePitch, rateYaw;
+
+// PID State
+float prevErrorRoll = 0, prevErrorPitch = 0, prevErrorYaw = 0;
+float integralRoll = 0, integralPitch = 0, integralYaw = 0;
+float prevErrorAngleRoll = 0, prevErrorAnglePitch = 0;
+float integralAngleRoll = 0, integralAnglePitch = 0;
+
+// PID Gains
+float Kp_angle = 6.5, Ki_angle = 0.0, Kd_angle = 0.0;
+float Kp_rate = 0.15, Ki_rate = 0.1, Kd_rate = 0.003;
+float Kp_yaw = 0.2, Ki_yaw = 0.05, Kd_yaw = 0.0;
+
+uint32_t loopTimer;
+float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
+
+// === Utility Functions ===
+float applyDeadband(float value, float threshold) {
+  return (abs(value) < threshold) ? 0.0 : value;
+}
+
+float constrainAndAntiWindup(float value, float &integral, float minVal, float maxVal) {
+  if (value > maxVal || value < minVal) {
+    integral = 0; // prevent windup
+  }
+  return constrain(value, minVal, maxVal);
+}
+
+// === Interrupt: PPM Reading ===
 void IRAM_ATTR handlePPMInterrupt() {
-    uint32_t timeNow = micros();
-    uint32_t pulseLength = timeNow - lastTime; // Calculate pulse length
-    lastTime = timeNow; // Store the current time
-
-    if (pulseLength > PPM_EOF) { // Check if this pulse is the end of a frame
-        currentPulse = 0; // Reset pulse index to start new frame
-    } else {
-        if (currentPulse < CHANNELS) { 
-            ppmValues[currentPulse] = pulseLength; // Store pulse length for current channel
-        }
-        currentPulse++; // Move to the next pulse
-    }
+  uint32_t now = micros();
+  uint32_t pulse = now - lastTime;
+  lastTime = now;
+  if (pulse > PPM_EOF) {
+    currentPulse = 0;
+  } else if (currentPulse < CHANNELS) {
+    ppmValues[currentPulse] = pulse;
+    currentPulse++;
+  }
 }
 
-
- void gyroReadings() {
-
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-  RateRoll = g.gyro.x * RAD_TO_DEG;
-  RatePitch = g.gyro.y * RAD_TO_DEG;
-  RateYaw = g.gyro.z * RAD_TO_DEG;
-
- }
-
- // Function to calculate angles from accelerometer and gyro
-void calculateAngles(float &pitch, float &roll) {
+// === Complementary Filter with Gyro Bias Correction ===
+void computeAngles() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  // Get accelerometer data
-  float accelX = a.acceleration.x; // Forward/backward (X axis)
-  float accelY = a.acceleration.y; // Side-to-side (Y axis)
-  float accelZ = a.acceleration.z; // Vertical (Z axis)
+  float accelX = a.acceleration.x;
+  float accelY = a.acceleration.y;
+  float accelZ = a.acceleration.z;
 
-  // Define pitch as forward/backward tilt (using X and Z axes)
-  pitch = atan2(accelY, sqrt(accelX * accelX + accelZ * accelZ)) * RAD_TO_DEG;
+  float gyroX = applyDeadband((g.gyro.x - gyroBiasX) * RAD_TO_DEG, 0.5);
+  float gyroY = applyDeadband((g.gyro.y - gyroBiasY) * RAD_TO_DEG, 0.5);
+  float gyroZ = applyDeadband((g.gyro.z - gyroBiasZ) * RAD_TO_DEG, 0.5);
+  
 
-  // Define roll as side-to-side tilt (using Y and Z axes)
-  roll = atan2(-accelX, accelZ) * RAD_TO_DEG;
+  float pitchAcc = applyDeadband(atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * RAD_TO_DEG, 5);
+  float rollAcc  = applyDeadband(atan2(accelY, accelZ) * RAD_TO_DEG, 5);
 
-  // Complementary filter for stability (using gyro data for rate of change)
-  float gyroX = g.gyro.x; // Roll rate (side-to-side)
-  float gyroY = g.gyro.y; // Pitch rate (forward/backward)
+  anglePitch = (0.98 * (anglePitch + gyroY * 0.02) + 0.02 * pitchAcc);
+  angleRoll  = (0.98 * (angleRoll  + gyroX * 0.02) + 0.02 * rollAcc);
 
-  // Apply complementary filter: combine accelerometer and gyroscope data
-  pitch = 0.98 * (pitch + gyroY * 0.02) + 0.02 * pitch;
-  roll = 0.98 * (roll + gyroX * 0.02) + 0.02 * roll;
+  rateRoll = gyroX;
+  ratePitch = gyroY;
+  rateYaw = gyroZ;
+
+  // Serial.print("Gyro (deg/s) → ");
+  // Serial.print("X: "); Serial.print(rateRoll, 2); Serial.print("  ");
+  // Serial.print("Y: "); Serial.print(ratePitch, 2); Serial.print("  ");
+  // Serial.print("Z: "); Serial.println(rateYaw, 2);
+
+  // Serial.print("Angles → ");
+  // Serial.print("Roll: "); Serial.print(angleRoll, 2); Serial.print("°  ");
+  // Serial.print("Pitch: "); Serial.print(anglePitch, 2); Serial.println("°");
+
 }
 
-//PID Function
-void PID_Function (float Error, float P, float I, float D, float PrevError, float PrevIterm ){
-  //if (Error)
-    float Pterm = P * Error;
-    float Iterm = PrevIterm + I * (Error + PrevError) * 0.02 / 2; // remove + PrevError
+// === Generic PID Function with Deadband and Anti-Windup ===
+float computePID(float target, float current, float &integral, float &prev_error,
+                 float Kp, float Ki, float Kd, float dt = 0.02,
+                 float outputMin = -500, float outputMax = 500,
+                 float errorDeadband = 2) {
 
-    
+  float error = target - current;
+  error = applyDeadband(error, errorDeadband);
+  if (error == 0) {
+    integral *= 0.95;
+  }
+  
+  integral += error * dt;
+  float derivative = (error - prev_error) / dt;
+  prev_error = error;
 
-    // Clamp the Iterm
-    if (Iterm > 400) { Iterm = 400; }
-    else if (Iterm < -400) { Iterm = -400; }
-
-    float Dterm = D * (Error - PrevError) / 0.02;
-    float PID_Output = Pterm + Iterm + Dterm;
-
-    // Clamp the PID output
-    if (PID_Output > 400) { PID_Output = 400; }
-    else if (PID_Output < -400) { PID_Output = -400; }
-
-    PID_Return[0] = PID_Output;
-    PID_Return[1] = Error;
-    PID_Return[2] = Iterm;
-}
-
-void reset_PID () {
-  PrevErrorRoll = 0; PrevErrorPitch = 0; PrevErrorYaw = 0;
-  PrevItermRoll = 0; PrevItermPitch = 0; PrevItermYaw = 0;
-  PrevErrorAnglePitch = 0; PrevErrorAngleRoll = 0;
+  float output = Kp * error + Ki * integral + Kd * derivative;
+  return constrainAndAntiWindup(output, integral, outputMin, outputMax);
 }
 
 uint16_t usToTicks(uint16_t usWidth) {
-    
-    return (int)((float)usWidth / ((float)REFRESH_PERIOD / (float)PWM_LEVELS) * (((float)PWM_FREQ) / 50.0)); 
+ float result = ((float)usWidth / ((float)REFRESH_PERIOD / (float)PWM_LEVELS)); // turnicating to int  
+ //if (result < 52) result = 52; // minimum value for the motor to start
+ //if (result > 102) result = 102; // maximum value for the motor to start
+
+ return (int) round(result); 
 }
 
-
+// === Setup ===
 void setup() {
   Serial.begin(115200);
-  InputRoll = 0;
-  InputPitch = 0;
-  InputYaw = 0;
-  PID_Return[0] = 0;
-  PID_Return[1] = 0;
-  PID_Return[2] = 0;
-         
-  Wire.begin(SDA_PIN, SCL_PIN);         
-  
+  delay(1000);
+  Serial.println("\n🚀 Starting drone setup...");
 
-  mpu.begin();
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Serial.println("✅ I2C initialized");
+
+  if (!mpu.begin()) {
+    Serial.println("❌ MPU6050 not found!");
+    while (1);
+  }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
-  
+  // === Gyro Bias Calibration ===
+  Serial.println("🧭 Calibrating gyroscope...");
+  for (int i = 0; i < 2000; i++) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    gyroBiasX += g.gyro.x;
+    gyroBiasY += g.gyro.y;
+    gyroBiasZ += g.gyro.z;
 
-  pinMode(PPM_PIN, INPUT);  
+    
+  }
+  gyroBiasX /= 2000.0;
+  gyroBiasY /= 2000.0;
+  gyroBiasZ /= 2000.0;
+ 
+  Serial.println("✅ Gyro bias calibrated");
+
+  pinMode(PPM_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PPM_PIN), handlePPMInterrupt, RISING);
+
   pinMode(PWM1_PIN, OUTPUT);
   pinMode(PWM2_PIN, OUTPUT);
   pinMode(PWM3_PIN, OUTPUT);
   pinMode(PWM4_PIN, OUTPUT);
-  
- 
- ledcAttachChannel(PWM1_PIN, PWM_FREQ, PWM_RESOLUTION, 0);
- ledcAttachChannel(PWM2_PIN, PWM_FREQ, PWM_RESOLUTION, 1);
- ledcAttachChannel(PWM3_PIN, PWM_FREQ, PWM_RESOLUTION, 2);
- ledcAttachChannel(PWM4_PIN, PWM_FREQ, PWM_RESOLUTION, 3);
- 
- 
 
-  // Attach an interrupt to the PPM pin to detect changes
-  attachInterrupt(digitalPinToInterrupt(PPM_PIN), handlePPMInterrupt, RISING);
+  ledcSetup(1, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(2, PWM_FREQ, PWM_RESOLUTION); 
+  ledcSetup(3, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(4, PWM_FREQ, PWM_RESOLUTION);
 
-  loopTimer = micros();
-  for (int i = 0; i <= 2000; i++){
-    gyroReadings();
-    CalibrationRoll += RateRoll;
-    CalibrationPitch += RatePitch;
-    CalibrationYaw += RateYaw;
+  ledcAttachPin(PWM1_PIN, 1);
+  ledcAttachPin(PWM2_PIN, 2);
+  ledcAttachPin(PWM3_PIN, 3);
+  ledcAttachPin(PWM4_PIN, 4);
+  // analogWriteFrequency(PWM1_PIN, PWM_FREQ);
+  // analogWriteFrequency(PWM2_PIN, PWM_FREQ);
+  // analogWriteFrequency(PWM3_PIN, PWM_FREQ);
+  // analogWriteFrequency(PWM4_PIN, PWM_FREQ);
 
-    
-  }
-  CalibrationRoll /= 2000;
-  CalibrationPitch /= 2000;
-  CalibrationYaw /= 2000;
 
- 
-  
-  
+  //loopTimer = micros();
+  Serial.println("✅ Setup complete");
 }
 
+// === Main Loop ===
 void loop() {
-  calculateAngles(angleRoll, angePitch); //TODO: function gives pitch instead roll. Correct later
-  gyroReadings();
-  RateRoll -= CalibrationRoll;
-  RatePitch -= CalibrationPitch;
-  RateYaw -= CalibrationYaw;
+  //float dt = (micros() - loopTimer) / 1000000.0;
+  loopTimer = micros();
 
-  // Serial.print("angleRoll: ");
-  // Serial.print(angleRoll);
-  // Serial.print(" deg ");
+  computeAngles();
 
-  // Serial.print("angePitch: ");
-  // Serial.print(angePitch);
-  // Serial.println(" deg ");
+  // Read and map RC inputs
+  float targetRoll = map(ppmValues[0], 1000, 2000, -MAX_ANGLE, MAX_ANGLE);
+  float targetPitch = map(ppmValues[1], 1000, 2000, -MAX_ANGLE, MAX_ANGLE);
+  float targetYawRate = map(ppmValues[3], 1000, 2000, -MAX_YAW_RATE, MAX_YAW_RATE);
+  float throttle = ppmValues[2];
 
-    
- 
+  // Serial.print("Mapped Inputs → ");
+  // Serial.print("Roll: "); Serial.print(targetRoll, 2); Serial.print("°  ");
+  // Serial.print("Pitch: "); Serial.print(targetPitch, 2); Serial.print("°  ");
+  // Serial.print("YawRate: "); Serial.print(targetYawRate, 2); Serial.print("°/s  ");
+  // Serial.print("Throttle: "); Serial.println(throttle, 0);
+
+  // Apply deadbands to eliminate jitter
+  targetRoll = applyDeadband(targetRoll, 1.0);
+  targetPitch = applyDeadband(targetPitch, 1.0);
+  targetYawRate = applyDeadband(targetYawRate, 1.0);
+
+  float desiredRateRoll = computePID(targetRoll, angleRoll, integralAngleRoll, prevErrorAngleRoll, Kp_angle, Ki_angle, Kd_angle);
+  float desiredRatePitch = computePID(targetPitch, anglePitch, integralAnglePitch, prevErrorAnglePitch, Kp_angle, Ki_angle, Kd_angle);
+
+  float rollOutput = computePID(desiredRateRoll, rateRoll, integralRoll, prevErrorRoll, Kp_rate, Ki_rate, Kd_rate);
+  float pitchOutput = computePID(desiredRatePitch, ratePitch, integralPitch, prevErrorPitch, Kp_rate, Ki_rate, Kd_rate);
+  float yawOutput = computePID(targetYawRate, rateYaw, integralYaw, prevErrorYaw, Kp_yaw, Ki_yaw, Kd_yaw);
   
+  throttle = (throttle > 1800) ? 1800 : throttle; // Limit throttle to 1800 for safety
+  int m1 = (int)round(throttle + rollOutput + pitchOutput - yawOutput);
+  int m2 = (int)round(throttle - rollOutput + pitchOutput + yawOutput);
+  int m3 = (int)round(throttle - rollOutput - pitchOutput - yawOutput);
+  int m4 = (int)round(throttle + rollOutput - pitchOutput + yawOutput);
 
-  // Print the gyro rates in degrees per second
-  // Serial.print("RateRoll: ");
-  // Serial.print(RateRoll);
-  // Serial.print(" deg/sec, ");
+  m1 = constrain(m1, 1000, 2000);
+  m2 = constrain(m2, 1000, 2000);
+  m3 = constrain(m3, 1000, 2000);
+  m4 = constrain(m4, 1000, 2000);
 
-  // Serial.print("RatePitch: ");
-  // Serial.print(RatePitch);
-  // Serial.print(" deg/sec, ");
-
-  // Serial.print("RateYaw: ");
-  // Serial.print(RateYaw);
-  // Serial.println(" deg/sec");
-
-  DesiredRoll = ROTATION_RATE*(ppmValues[0]-1500);
-  DesiredPitch = ROTATION_RATE*(ppmValues[1]-1500);
-  DesiredYaw = ROTATION_RATE*(ppmValues[3]-1500);
-  InputThrottle = ppmValues[2];
-  
-  
-
-
-// print ppm values
-  // Serial.print("Roll: ");
-  // Serial.print(ppmValues[0]);
-  // Serial.print(" ms, ");
-
-  // Serial.print("Pitch: ");
-  // Serial.print(ppmValues[1]);
-  // Serial.print(" deg/sec, ");
-
-  // Serial.print("Yaw: ");
-  // Serial.print(ppmValues[3]);
-  // Serial.println(" deg/sec");
-  
-  // Serial.print("InputThrottle: ");
-  // Serial.print(InputThrottle);
-  // Serial.print(" ms, ");
-
-
-// print desired rates
-  // Serial.print("DesiredRoll: ");
-  // Serial.print(DesiredRoll);
-  // Serial.print(" deg/sec, ");
-
-  // Serial.print("DesiredPitch: ");
-  // Serial.print(DesiredPitch);
-  // Serial.print(" deg/sec, ");
-
-  // Serial.print("DesiredYaw: ");
-  // Serial.print(DesiredYaw);
-  // Serial.println(" deg/sec");
-  
-  // Serial.print("InputThrottle: ");
-  // Serial.print(InputThrottle);
-  // Serial.print(" ms, ");
-
-
-  
-
-  ErrorRoll = (DesiredRoll-RateRoll);
-  ErrorPitch = (DesiredPitch-RatePitch);
-  ErrorYaw = (DesiredYaw-RateYaw);
-
-  ErrorAngleRoll = 0 - angleRoll; // Target angle is 0
-  ErrorAnglePitch = 0 - angePitch; // Target angle is 0
-
-  if (abs(ErrorRoll) <= 5) {
-    ErrorRoll = 0;
-  }
-  if (abs(ErrorPitch) <= 5) {
-    ErrorPitch = 0;
-  }
-  if (abs(ErrorYaw) <= 5) {
-    ErrorYaw = 0;
-  }
-  if (abs(ErrorAngleRoll) <= 3) {
-    ErrorAngleRoll = 0;
-  }
-  if (abs(ErrorAnglePitch) <= 3) {
-    ErrorAnglePitch = 0;
+  if (throttle < 1050) {
+    m1 = m2 = m3 = m4 = 1000;
+    integralRoll = integralPitch = integralYaw = 0;
+    prevErrorRoll = prevErrorPitch = prevErrorYaw = 0;
   }
 
-  // Serial.print("ErrorRoll: ");
-  // Serial.print(ErrorRoll);
-  // Serial.print(" rad/s ");
-
-  // Serial.print("ErrorPitch: ");
-  // Serial.print(ErrorPitch);
-  // Serial.print(" rad/s ");
-
-  // Serial.print("ErrorYaw: ");
-  // Serial.print(ErrorYaw);
-  // Serial.println(" rad/s");
 
 
+  ledcWrite(1, usToTicks(m1));
+  ledcWrite(2, usToTicks(m2));
+  ledcWrite(3, usToTicks(m3));
+  ledcWrite(4, usToTicks(m4));
 
-  // Serial.print("ErrorAngleRoll: ");
-  // Serial.print(ErrorAngleRoll);
-  // Serial.print(" deg/s ");
-
-  // Serial.print("ErrorAnglePitch: ");
-  // Serial.print(ErrorAnglePitch);
-  // Serial.println(" deg/s ");
-
-
-
-  
-  //if (ErrorRoll != 0){
-    PID_Function(ErrorRoll, P_TermRoll, I_TermRoll, D_TermRoll, PrevErrorRoll, PrevItermRoll);
-    InputRoll = PID_Return[0];
-    PrevErrorRoll = PID_Return[1];
-    PrevItermRoll = PID_Return[2];
-  //} else {InputRoll = 0;}
-
-  //if (ErrorPitch != 0){
-    PID_Function(ErrorPitch, P_TermPitch, I_TermPitch, D_TermPitch, PrevErrorPitch, PrevItermPitch);
-    InputPitch = PID_Return[0];
-    PrevErrorPitch = PID_Return[1];
-    PrevItermPitch = PID_Return[2];
-  //} else {InputPitch = 0;}
-
-  //if (ErrorYaw != 0){
-    PID_Function(ErrorYaw, P_TermYaw, I_TermYaw, D_TermYaw, PrevErrorYaw, PrevItermYaw);
-    InputYaw = PID_Return[0];
-    PrevErrorYaw = PID_Return[1];
-    PrevItermYaw = PID_Return[2];
-  //} else {InputYaw = 0;}
-
-    PID_Function(ErrorAngleRoll, P_TermAngle, I_TermAngle, D_TermAngle, PrevErrorAngleRoll, PrevItermAngleRoll);
-    InputRollAngle = PID_Return[0];
-    PrevErrorAngleRoll = PID_Return[1];
-    PrevItermAngleRoll = PID_Return[2];
-
-    PID_Function(ErrorAnglePitch, P_TermAngle, I_TermAngle, D_TermAngle, PrevErrorAnglePitch, PrevItermAnglePitch);
-    InputPitchAngle = PID_Return[0];
-    PrevErrorAnglePitch = PID_Return[1];
-    PrevItermAnglePitch = PID_Return[2];
-    
-    // Serial.print("InputRollAngle: ");
-    // Serial.print(InputRollAngle);
-    // Serial.print(" deg/s ");
-
-    // Serial.print("InputPitchAngle: ");
-    // Serial.print(InputPitchAngle);
-    // Serial.println(" deg/s ");
+  // analogWrite(PWM1_PIN, usToTicks(m1));
+  // analogWrite(PWM2_PIN, usToTicks(m2));
+  // analogWrite(PWM3_PIN, usToTicks(m3));
+  // analogWrite(PWM4_PIN, usToTicks(m4));
   
 
-  if (InputThrottle > 1800) {InputThrottle = 1800;} //20% reserved for roll, pitch and yaw rotations 
+  Serial.print("PWM Ticks → ");
+  Serial.print("M1: "); Serial.print(usToTicks(m1)); Serial.print("  ");
+  Serial.print("M2: "); Serial.print(usToTicks(m2)); Serial.print("  ");
+  Serial.print("M3: "); Serial.print(usToTicks(m3)); Serial.print("  ");
+  Serial.print("M4: "); Serial.println(usToTicks(m4));
 
-  Motor1_Input = InputThrottle+InputRoll+InputPitch-InputYaw; //-InputRollAngle-InputPitchAngle;
-  Motor2_Input = InputThrottle-InputRoll+InputPitch+InputYaw; //+InputRollAngle-InputPitchAngle;
-  Motor3_Input = InputThrottle-InputRoll-InputPitch-InputYaw; //+InputRollAngle+InputPitchAngle;
-  Motor4_Input = InputThrottle+InputRoll-InputPitch+InputYaw; //-InputRollAngle+InputPitchAngle;
-  if (Motor1_Input>2000) {Motor1_Input = 1999;}
-  if (Motor2_Input>2000) {Motor2_Input = 1999;}
-  if (Motor3_Input>2000) {Motor3_Input = 1999;}
-  if (Motor4_Input>2000) {Motor4_Input = 1999;}
-  /*int ThrottleIdle = 1180;
-  if (Motor1_Input<ThrottleIdle) {Motor1_Input = ThrottleIdle;}
-  if (Motor2_Input<ThrottleIdle) {Motor2_Input = ThrottleIdle;}
-  if (Motor3_Input<ThrottleIdle) {Motor3_Input = ThrottleIdle;}
-  if (Motor4_Input<ThrottleIdle) {Motor4_Input = ThrottleIdle;}
-  */
-  int ThrottleCutoff = 1000;
-  if (ppmValues[2]<1050) {
-    Motor1_Input = ThrottleCutoff;
-    Motor2_Input = ThrottleCutoff;
-    Motor3_Input = ThrottleCutoff;
-    Motor4_Input = ThrottleCutoff;
-    reset_PID();
-  }
 
-  // Serial.print("Motor1_Input: ");
-  // Serial.print(Motor1_Input);
-  // Serial.print(" ms ");
 
-  // Serial.print("Motor2_Input: ");
-  // Serial.print(Motor2_Input);
-  // Serial.print(" ms ");
-
-  // Serial.print("Motor3_Input: ");
-  // Serial.print(Motor3_Input);
-  // Serial.print(" ms");
-  
-  // Serial.print("Motor4_Input: ");
-  // Serial.print(Motor4_Input);
-  // Serial.println(" ms, ");
-  
-  ledcWrite(PWM1_PIN, usToTicks(Motor1_Input));
-  ledcWrite(PWM2_PIN, usToTicks(Motor2_Input));
-  ledcWrite(PWM3_PIN, usToTicks(Motor3_Input));
-  ledcWrite(PWM4_PIN, usToTicks(Motor4_Input));
-  
-  
-
-  while (micros()-loopTimer<20000)
-  {
-    
-  }
-  loopTimer=micros();
-  
+  // Serial.print("Motor Outputs: ");
+  // Serial.print("M1: "); Serial.print(m1); Serial.print("  ");
+  // Serial.print("M2: "); Serial.print(m2); Serial.print("  ");
+  // Serial.print("M3: "); Serial.print(m3); Serial.print("  ");
+  // Serial.print("M4: "); Serial.println(m4);
+  while (micros() - loopTimer < 20000); // Maintain 50 Hz loop rate
 }
-
-
- 
