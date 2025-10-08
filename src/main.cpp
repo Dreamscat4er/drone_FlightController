@@ -3,52 +3,22 @@
   --------
 
   === Task Flow ===
-  
-  1. **TaskRC (priority 2)**
-     - ISR captures PPM pulses from the RC receiver.
-     - TaskRC assembles channels into an `RCState` object.
-     - Publishes latest RC commands (throttle, roll, pitch, yaw) → `gRC`.
-
-  2. **TaskIMU (priority 3)**
-     - Reads MPU6050 over I2C at ~200 Hz.
-     - Runs complementary filter to compute roll/pitch angles.
-     - Publishes sensor fusion output (angles + angular rates) → `gAtt`.
-
-  3. **TaskControl (priority 4, highest)**
-     - Runs control loop at ~200 Hz.
-     - Reads `gRC` (user input) and `gAtt` (sensor state).
-     - Cascaded PID:  
-         Outer loop (Angle PID → desired rates)
-            - Input: pilot’s stick command (target roll/pitch angle).
-            - Compares desired angle (from RC) vs. measured angle (from IMU).
-            - Output: a desired angular rate (deg/s).
-            - Example: Pilot wants to tilt to 10° roll and hold it steady. 
-         Inner loop (Rate PID → motor corrections)
-            - Input: desired rate (from outer loop) vs. measured gyro rate.
-            - Output: motor correction values.
-            - Example: Motor power changes to reach the desired rate from outer loop
-     - Mixes corrections into 4 motor commands (m1–m4).
-     - Updates ESCs via LEDC PWM channels.
-
-  4. **TaskLog (priority 1, lowest)**
-     - Periodically (10 Hz) prints RC + attitude states to Serial.
-     - Purely for debugging/monitoring; no effect on control.
-
-  === Data Synchronization ===
-  - `gRC` and `gAtt` are global states protected by FreeRTOS mutexes.
-  - RC ISR → queue → TaskRC → `gRC`.
-  - TaskIMU writes → `gAtt`.
-  - TaskControl reads both states to compute outputs.
-  - TaskLog reads both states to print diagnostics.
-
+  1) TaskRC      : reads RX → gRC
+  2) TaskIMU     : attitude + aZlin → gAtt, gVertAcc
+  3) TaskBaro    : altitude (zeroed + LPF) → gBaro
+  4) TaskControl : cascaded attitude control + vertical EKF (uses gVertAcc + gBaro)
+  5) TaskLog     : periodic prints (debug/monitoring)
 */
-#ifndef IMU_ONLY_TEST
+
+#if !defined(IMU_ONLY_TEST) && !defined(BARO_ONLY_TEST) && !defined(EKF_VERT_TEST)
 
 #include <Arduino.h>
+#include <Wire.h>
 #include "app/Shared.h"
 #include "app/Config.h"
 #include "app/TaskRC.h"
 #include "app/TaskIMU.h"
+// startTaskBaro is declared in Shared.h; no extra header required.
 #include "app/TaskControl.h"
 #include "app/TaskLog.h"
 
@@ -56,14 +26,27 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  // Create mutexes/queues
-  gMutexAngles = xSemaphoreCreateMutex();
-  gMutexRC     = xSemaphoreCreateMutex();
-  gQPPM        = xQueueCreate(64, sizeof(PpmPulse));
+  // --- Create queues & mutexes ---
+  gMutexAngles  = xSemaphoreCreateMutex();
+  gMutexRC      = xSemaphoreCreateMutex();
+  gMutexMotors  = xSemaphoreCreateMutex();
+  gMutexBaro    = xSemaphoreCreateMutex();
+  gMutexI2C     = xSemaphoreCreateMutex();
+  gMutexVertAcc = xSemaphoreCreateMutex();
+  gQPPM         = xQueueCreate(64, sizeof(PpmPulse));
 
-  // Start tasks
+  // --- Init I2C before any task touches the bus ---
+  if (xSemaphoreTake(gMutexI2C, portMAX_DELAY) == pdTRUE) {
+    Wire.begin(SDA_PIN, SCL_PIN);
+    Wire.setClock(400000);
+    xSemaphoreGive(gMutexI2C);
+  }
+
+  // --- Start tasks ---
+  // Order: sensors first (IMU, Baro) so Control has data on first iterations.
   startTaskRC();
   startTaskIMU();
+  startTaskBaro();      // <-- needed for altitude (EKF update)
   startTaskControl();
   startTaskLog();
 
@@ -71,7 +54,7 @@ void setup() {
 }
 
 void loop() {
-  // Empty: all work is in tasks
+  // All work happens in tasks.
 }
 
-#endif
+#endif // !IMU_ONLY_TEST && !BARO_ONLY_TEST && !EKF_VERT_TEST

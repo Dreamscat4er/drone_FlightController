@@ -57,19 +57,25 @@
 
 // === FreeRTOS task priorities ===
 
+/** Barometer task priority. */
+#define PRIO_BARO 2
+
 /** Control loop task priority (highest). */
 #define PRIO_CTRL   4
 
-/** IMU task priority (high). */
+/** IMU task priority. */
 #define PRIO_IMU    3
 
-/** RC input task priority (medium). */
+/** RC input task priority. */
 #define PRIO_RC     2
 
-/** Logging/debug task priority (lowest). */
+/** Logging/debug task priority */
 #define PRIO_LOG    1
 
 // === Task periods ===
+
+/** Barometer period in milliseconds */
+#define BARO_PERIOD_MS 145
 
 /** Control loop period in milliseconds (e.g. 5 ms = 200 Hz). */
 #define CTRL_PERIOD_MS 5
@@ -79,3 +85,39 @@
 
 /** Logging period in milliseconds (e.g. 100 ms = 10 Hz). */
 #define LOG_PERIOD_MS  100
+
+/**  Reference sea level pressure */
+#define SEA_LEVEL_HPA 1013.25f
+
+
+// === Vertical control parameters ===
+
+/**
+ * Maximum climb/descent rate command (m/s) at full stick deflection.
+ * 1.5 m/s = 150 cm/s → smoother altitude response and reduced thrust spikes.
+ */
+#define MAX_CLIMB_RATE 1.5f
+
+/**
+ * Deadband (m/s) around zero vertical velocity.
+ * If |targetVz| < VZ_DEADBAND, controller treats it as zero to prevent jitter.
+ */
+#define VZ_DEADBAND 0.05f
+
+/**
+ * Minimum output delta (µs) from the vertical speed PID relative to hover.
+ * Negative values reduce throttle when descending or correcting overshoot.
+ */
+#define VZ_OUT_MIN -300
+
+/**
+ * Maximum output delta (µs) from the vertical speed PID relative to hover.
+ * Positive values increase throttle when climbing or correcting undershoot.
+ */
+#define VZ_OUT_MAX 300
+
+/**
+ * Low-pass filter coefficient for derived vertical speed (0–1).
+ * Higher values respond faster but can be noisier; lower = smoother response.
+ */
+#define VZ_LPF_ALPHA 0.15f

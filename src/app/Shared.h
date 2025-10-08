@@ -5,59 +5,106 @@
 #include <freertos/semphr.h>
 #include "Config.h"
 
-/**
- * @brief Latest RC receiver state (updated by TaskRC).
+/*
+ * Project-wide conventions
+ * ------------------------
+ *  Angles: degrees; angular rates: deg/s
+ *  Acceleration: m/s^2 (g = 9.80665)
+ *  Altitude (z): meters, +up; Vertical velocity (Vz): m/s, +up
+ *  Timestamps: micros()
  */
+
+// === RC input ===============================================================
 struct RCState {
-  uint16_t ch[CHANNELS];   ///< Raw channel widths in microseconds.
-  uint32_t lastUpdateUs;   ///< Timestamp of last valid frame (micros()).
-  bool valid;              ///< True if data is fresh (within timeout).
+  uint16_t ch[CHANNELS];    ///< Raw channel widths (µs)
+  uint32_t lastUpdateUs;    ///< Time of last valid frame (micros())
+  bool     valid;           ///< True if fresh within timeout
 };
 
-/**
- * @brief Latest attitude state from IMU fusion (updated by TaskIMU).
- */
+// === Motor outputs ==========================================================
+struct MotorFeed {
+  int m1;              ///< ESC pulse (µs)
+  int m2;
+  int m3;
+  int m4;
+};
+
+// === Attitude from IMU fusion ==============================================
 struct AttState {
-  float angleRoll;   ///< Roll angle in degrees.
-  float anglePitch;  ///< Pitch angle in degrees.
-  float rateRoll;    ///< Roll rate in deg/s.
-  float ratePitch;   ///< Pitch rate in deg/s.
-  float rateYaw;     ///< Yaw rate in deg/s.
-  uint32_t stampUs;  ///< Timestamp of measurement (micros()).
+  float     angleRoll;      ///< Roll [deg]
+  float     anglePitch;     ///< Pitch [deg]
+  float     rateRoll;       ///< Roll rate [deg/s]
+  float     ratePitch;      ///< Pitch rate [deg/s]
+  float     rateYaw;        ///< Yaw rate [deg/s]
+  uint32_t  stampUs;        ///< Timestamp [micros()]
 };
 
-/**
- * @brief Single PPM pulse captured by ISR (sent via queue to TaskRC).
+// === Barometer ==============================================================
+/*
+ * For the EKF we only need altitude as a measurement (no baro velocity here).
  */
-struct PpmPulse {
-  uint16_t widthUs;  ///< Pulse width in microseconds.
-  bool eof;          ///< True if this pulse denotes end-of-frame (gap > PPM_EOF).
+struct BaroState {
+  float     pressure;       ///< Pa
+  float     temperature;    ///< °C
+  float     altitude;       ///< m (+up), pressure-derived (relative or QNH-adjusted)
+  uint32_t  stampUs;        ///< Timestamp [micros()]
+  bool      valid;          ///< True if fresh within timeout
 };
 
-// === Shared RTOS primitives and states (declared here, defined in Shared.cpp) ===
-extern QueueHandle_t gQPPM;           ///< Queue used by PPM ISR to send pulses to TaskRC.
-extern SemaphoreHandle_t gMutexAngles;///< Mutex protecting @ref gAtt.
-extern SemaphoreHandle_t gMutexRC;    ///< Mutex protecting @ref gRC.
+// === Vertical acceleration (world frame, gravity removed) ==================
+/*
+ * Published by TaskIMU after rotating body accel to world frame and removing g.
+ * This is the EKF process input (drives z/vz dynamics).
+ */
+struct VertAccState {
+  float     aZlin;          ///< m/s^2 (+up), gravity removed, world frame
+  uint32_t  stampUs;        ///< Timestamp [micros()]
+  bool      valid;          ///< True if recent/usable
+};
 
-extern RCState gRC;  ///< Global RC state (producer: TaskRC; consumers: TaskControl/TaskLog).
-extern AttState gAtt;///< Global attitude state (producer: TaskIMU; consumers: TaskControl/TaskLog);
+// === PPM pulse from ISR =====================================================
+struct PpmPulse {
+  uint16_t widthUs;         ///< Pulse width (µs)
+  bool     eof;             ///< End-of-frame (gap > PPM_EOF)
+};
 
-// PID state (owned by TaskControl)
+// === Shared RTOS primitives and states (declared here, defined in Shared.cpp)
+extern QueueHandle_t      gQPPM;            ///< PPM pulse queue → TaskRC
+extern SemaphoreHandle_t  gMutexAngles;     ///< Protects gAtt
+extern SemaphoreHandle_t  gMutexRC;         ///< Protects gRC
+extern SemaphoreHandle_t  gMutexMotors;     ///< Protects gMotors
+extern SemaphoreHandle_t  gMutexBaro;       ///< Protects gBaro
+extern SemaphoreHandle_t  gMutexI2C;        ///< I2C bus lock (IMU + Baro share)
+extern SemaphoreHandle_t  gMutexVertAcc;    ///< Protects gVertAcc
+
+extern RCState        gRC;       ///< Producer: TaskRC
+extern AttState       gAtt;      ///< Producer: TaskIMU
+extern MotorFeed      gMotors;   ///< Producer: TaskControl
+extern BaroState      gBaro;     ///< Producer: TaskBaro
+extern VertAccState   gVertAcc;  ///< Producer: TaskIMU
+
+// === PID state (owned by TaskControl) ======================================
+// Angle/Rate loops
 extern float prevErrorRoll, prevErrorPitch, prevErrorYaw;
-extern float integralRoll, integralPitch, integralYaw;
+extern float integralRoll,  integralPitch,  integralYaw;
 extern float prevErrorAngleRoll, prevErrorAnglePitch;
-extern float integralAngleRoll, integralAnglePitch;
+extern float integralAngleRoll,  integralAnglePitch;
 
-// PID gains (tuned in TaskControl)
+// Vertical rate loop (Vz)
+extern float prevErrorVz, integralVz;
+
+// === PID gains (tuned in TaskControl) ======================================
 extern float Kp_angle, Ki_angle, Kd_angle;
 extern float Kp_rate,  Ki_rate,  Kd_rate;
 extern float Kp_yaw,   Ki_yaw,   Kd_yaw;
+extern float Kp_alt,   Ki_alt,   Kd_alt;
+extern float Kp_vz,    Ki_vz,    Kd_vz;
 
-// Gyro bias (computed and used inside TaskIMU)
-extern float gyroBiasX, gyroBiasY, gyroBiasZ;
 
-// === Task starters ===
+// === Task starters ==========================================================
 void startTaskRC();
 void startTaskIMU();
 void startTaskControl();
 void startTaskLog();
+void startTaskBaro();
+

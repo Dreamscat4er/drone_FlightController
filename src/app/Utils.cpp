@@ -16,7 +16,7 @@ float applyDeadband(float v, float th) {
 }
 
 float constrainAndAntiWindup(float value, float &integral, float minVal, float maxVal) {
-  if (value > maxVal || value < minVal) integral = 0;
+  if (value > maxVal || value < minVal) integral *= 0.9f;
   return constrain(value, minVal, maxVal);
 }
 
