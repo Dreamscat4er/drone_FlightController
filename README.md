@@ -1,4 +1,4 @@
-This is a real-time flight controller for a brushed/brushless quad built on ESP32 + FreeRTOS and made for Savonia UAS for educational purposes by [Stanislav Kolosov](https://github.com/Dreamscat4er)
+This is a real-time flight controller for a brushed/brushless quad built on ESP32 + FreeRTOS.
 It reads an MPU6050 IMU and a BMP280 barometer, accepts PPM RC input, runs attitude, altitude, and yaw control loops, and uses a tiny EKF (Extended Kalman Filter) to estimate vertical velocity from IMU + barometer. 
 
 Electric schema
@@ -74,3 +74,4 @@ Links:
 2. [MPU6050](https://learn.adafruit.com/mpu6050-6-dof-accelerometer-and-gyro/downloads)
 3. [BMP280](https://learn.adafruit.com/adafruit-bmp280-barometric-pressure-plus-temperature-sensor-breakout/downloads)
 
+Made for Savonia UAS for educational purposes by [Stanislav Kolosov](https://github.com/Dreamscat4er)
