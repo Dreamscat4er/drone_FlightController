@@ -74,4 +74,33 @@ Links:
 2. [MPU6050](https://learn.adafruit.com/mpu6050-6-dof-accelerometer-and-gyro/downloads)
 3. [BMP280](https://learn.adafruit.com/adafruit-bmp280-barometric-pressure-plus-temperature-sensor-breakout/downloads)
 
+Documentation (Doxygen)
+
+This project uses Doxygen to generate browsable HTML documentation from the code comments.
+
+1) Install Doxygen
+Windows (recommended: installer)
+
+Download the Windows installer from the official site and run it.
+
+```powershell
+doxygen --version
+```
+macOS (Homebrew)
+
+```bash
+brew install doxygen graphviz
+doxygen --version
+```
+
+Ubuntu/Debian
+
+```bash
+sudo apt update
+sudo apt install doxygen graphviz
+doxygen --version
+```
+2) Open index.html in docs/html
+
+Credits
 Made for Savonia UAS for educational purposes by [Stanislav Kolosov](https://github.com/Dreamscat4er)
