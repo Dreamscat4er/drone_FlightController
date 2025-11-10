@@ -8,13 +8,13 @@ RTOS Tasks overview.
 
 The flight controller operates on an ESP32 microcontroller, using FreeRTOS for multitasking. Each task is a lightweight thread pinned to a specific core (PRO_CPU_NUM for sensors, APP_CPU_NUM for control/RC). Tasks are prioritized to ensure critical operations preempt non-essential ones.
 
-Tasks:
+### Tasks
 
-TaskRC (Priority: PRIO_RC, Core: APP): Processes RC receiver signals.
-TaskIMU (Priority: PRIO_IMU, Core: PRO): Handles IMU (MPU6050) readings and attitude computation.
-TaskBaro (Priority: PRIO_BARO, Core: PRO): Manages barometer (BMP280) for altitude sensing.
-TaskControl (Priority: PRIO_CTRL, Core: APP): Performs EKF fusion, PID control, and motor mixing.
-TaskLog (Priority: PRIO_LOG, Core: PRO): Outputs telemetry for monitoring.
+- **TaskRC** *(Priority: `PRIO_RC`, Core: `APP`)* — Processes RC receiver signals.  
+- **TaskIMU** *(Priority: `PRIO_IMU`, Core: `PRO`)* — Handles IMU (MPU6050) readings and attitude computation.  
+- **TaskBaro** *(Priority: `PRIO_BARO`, Core: `PRO`)* — Manages barometer (BMP280) for altitude sensing.  
+- **TaskControl** *(Priority: `PRIO_CTRL`, Core: `APP`)* — Performs EKF fusion, PID control, and motor mixing.  
+- **TaskLog** *(Priority: `PRIO_LOG`, Core: `PRO`)* — Outputs telemetry for monitoring.
 
 
 Task diagram.
