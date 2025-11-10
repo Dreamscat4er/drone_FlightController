@@ -27,7 +27,7 @@ static bool  sCalDone = false;
 static void calibrateAltZero() {
   double sumAlt = 0.0;
   for (int i = 0; i < 200; ++i) {
-    float alt = bmp.readAltitude(SEA_LEVEL_HPA); // m (+up)
+    float alt = bmp.readAltitude(SEA_LEVEL_HPA);
     sumAlt += alt;
     vTaskDelay(pdMS_TO_TICKS(5));
   }
@@ -80,18 +80,18 @@ static void taskBaro(void*) {
 
     // Zeroed altitude (relative to startup ground)
     float alt0 = (!isnan(altRaw) && sCalDone) ? (altRaw - sAltZero) : altRaw;
-
-    // gentle LPF on zeroed altitude
-    if (!isnan(alt0)) {
-      const float Z_ALPHA = 0.15f; // ~2–4 Hz feel at typical baro rates
+  
+    // gentle LPF on zeroed altitude. Include after testing  
+  /*   if (!isnan(alt0)) {
+      const float Z_ALPHA = 0.15f; // ~2–4 Hz
       if (isnan(sAltLP)) sAltLP = alt0;
       else               sAltLP += Z_ALPHA * (alt0 - sAltLP);
-    }
+    } */
 
     if (xSemaphoreTake(gMutexBaro, pdMS_TO_TICKS(2)) == pdTRUE) {
       gBaro.temperature = T;
       gBaro.pressure    = P;
-      gBaro.altitude    = isnan(sAltLP) ? alt0 : sAltLP;  // publish zeroed (and LPF’d) altitude
+      gBaro.altitude    = isnan(sAltLP) ? alt0 : sAltLP;  // publish zeroed (or LPF’d) altitude
       gBaro.stampUs     = micros();
       gBaro.valid       = !isnan(T) && !isnan(P) && !isnan(altRaw);
       xSemaphoreGive(gMutexBaro);

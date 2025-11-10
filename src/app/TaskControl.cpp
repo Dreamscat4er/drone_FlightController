@@ -1,15 +1,15 @@
 /*
   TaskControl.cpp
   ---------------
-  PURPOSE (short):
+  PURPOSE:
     This task runs the flight control loop (attitude + yaw) and manages vertical motion.
     Vertical control relies purely on velocity (vz_est from EKF), ignoring altitude drift.
     - Stick up: target positive vz (climb).
     - Stick down: target negative vz (descend).
     - Stick middle (deadband): targetVz=0 for hover (counters small vz_est drift via PID).
-    EKF still fuses IMU/baro for reliable vz_est (baro helps long-term, but we don't hold position).
+    EKF fuses IMU/baro for reliable vz_est.
 
-  EKF MATH (nutshell):
+  EKF math explained:
     The EKF keeps an internal “belief” about the vertical motion in a State vector:       
                         x_k = [ z_k, vz_k, ba_k ]^T
                         z  : altitude at time step k (m, +up) — tracked but NOT used for control
@@ -63,7 +63,7 @@ static const uint32_t HOVER_SAMPLE_MS = 50; // Sample every 50 ms to avoid noise
 // Helper clamp for ESC pulses
 static inline int clampi(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
 
-// Simple LPF helper (if not in Utils.h)
+// Simple LPF helper
 static inline float lpfStep(float prev, float x, float alpha) {
   return prev + alpha * (x - prev);
 }
@@ -79,7 +79,7 @@ static void taskControl(void* arg) {
   ledcAttachPin(PWM3_PIN, 3);
   ledcAttachPin(PWM4_PIN, 4);
 
-  const TickType_t period = pdMS_TO_TICKS(CTRL_PERIOD_MS); // e.g., 5 ms → 200 Hz
+  const TickType_t period = pdMS_TO_TICKS(CTRL_PERIOD_MS); // 5 ms → 200 Hz
   TickType_t last = xTaskGetTickCount();
 
   // Dynamic hover estimation state
@@ -140,7 +140,7 @@ static void taskControl(void* arg) {
     const float dt = CTRL_PERIOD_MS / 1000.0f;
     // ---------------------------------------
 
-    // --------- Attitude control (unchanged) ----------
+    // --------- Attitude control ----------
     float desiredRateRoll  = computePID(targetRoll,  att.angleRoll,  integralAngleRoll,  prevErrorAngleRoll,
                                         Kp_angle, Ki_angle, Kd_angle, dt);
     float desiredRatePitch = computePID(targetPitch, att.anglePitch, integralAnglePitch, prevErrorAnglePitch,

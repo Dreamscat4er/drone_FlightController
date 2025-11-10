@@ -24,9 +24,9 @@ struct RCState {
 // === Motor outputs ==========================================================
 struct MotorFeed {
   int m1;              ///< ESC pulse (µs)
-  int m2;
-  int m3;
-  int m4;
+  int m2;              ///< ESC pulse (µs)
+  int m3;              ///< ESC pulse (µs)
+  int m4;              ///< ESC pulse (µs)
 };
 
 // === Attitude from IMU fusion ==============================================
@@ -41,7 +41,7 @@ struct AttState {
 
 // === Barometer ==============================================================
 /*
- * For the EKF we only need altitude as a measurement (no baro velocity here).
+ * For the EKF only altitude needed as a measurement (no baro velocity here).
  */
 struct BaroState {
   float     pressure;       ///< Pa
@@ -54,7 +54,7 @@ struct BaroState {
 // === Vertical acceleration (world frame, gravity removed) ==================
 /*
  * Published by TaskIMU after rotating body accel to world frame and removing g.
- * This is the EKF process input (drives z/vz dynamics).
+ * This is the EKF process input.
  */
 struct VertAccState {
   float     aZlin;          ///< m/s^2 (+up), gravity removed, world frame
@@ -68,7 +68,7 @@ struct PpmPulse {
   bool     eof;             ///< End-of-frame (gap > PPM_EOF)
 };
 
-// === Shared RTOS primitives and states (declared here, defined in Shared.cpp)
+// === Shared RTOS primitives and states
 extern QueueHandle_t      gQPPM;            ///< PPM pulse queue → TaskRC
 extern SemaphoreHandle_t  gMutexAngles;     ///< Protects gAtt
 extern SemaphoreHandle_t  gMutexRC;         ///< Protects gRC

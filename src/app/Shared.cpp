@@ -7,12 +7,12 @@ SemaphoreHandle_t gMutexRC      = nullptr;
 SemaphoreHandle_t gMutexMotors  = nullptr;
 SemaphoreHandle_t gMutexBaro    = nullptr;
 SemaphoreHandle_t gMutexI2C     = nullptr;
-SemaphoreHandle_t gMutexVertAcc = nullptr;   // protects gVertAcc
+SemaphoreHandle_t gMutexVertAcc = nullptr; 
 
 // === Shared states ===
 RCState   gRC     = {{1500,1500,1000,1500,0,0,0,0}, 0, false};
 AttState  gAtt    = {0,0,0,0,0,0};
-BaroState gBaro   = {0,0,0,0,false};         // pressure, temperature, altitude, stampUs, valid
+BaroState gBaro   = {0,0,0,0,false}; 
 MotorFeed gMotors = {0,0,0,0};
 
 // world-frame, gravity-removed vertical acceleration (producer: TaskIMU)
@@ -28,7 +28,7 @@ float prevErrorVz = 0, integralVz  = 0;
 // === PID gains ===
 // Angle outer loop (deg → deg/s ref)
 float Kp_angle = 6.5f, Ki_angle = 0.0f, Kd_angle = 0.0f;
-// Body-rate inner loop (deg/s error → motor µs)
+// Rate inner loop (deg/s error → motor µs)
 float Kp_rate  = 0.15f, Ki_rate  = 0.10f, Kd_rate  = 0.003f;
 // Yaw rate loop
 float Kp_yaw   = 0.20f,  Ki_yaw   = 0.05f, Kd_yaw  = 0.00f;

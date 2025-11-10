@@ -14,7 +14,7 @@ static TaskHandle_t sTaskHandle = nullptr;
 
 static void taskLog(void* arg) {
   for (;;) {
-    // Take snapshots under mutexes so we print a consistent view
+    
     RCState rc;
     AttState att;
     MotorFeed motors;
@@ -34,7 +34,7 @@ static void taskLog(void* arg) {
       xSemaphoreGive(gMutexMotors);
     }
 
-    // Print a compact line: RC, Attitude, Rates, Motors (µs)
+    // Print: RC, Attitude, Rates, Motors (µs)
     Serial.printf(
       "RC(thr=%u, valid=%d) Att(R=%.2f P=%.2f) Rates(R=%.2f P=%.2f Y=%.2f) "
       "Motors(us): M1=%u M2=%u M3=%u M4=%u\n",

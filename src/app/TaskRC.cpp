@@ -38,7 +38,7 @@ static void taskRC(void* arg) {
         idx = 0;
         inFrame = true; // start accepting pulses for the next frame
       } else {
-        // Only record pulses if we're inside a frame (i.e., after an EOF)
+        // Only record pulses if inside a frame (after an EOF)
         if (!inFrame) {
           // ignore noise before the first EOF
         } else {
@@ -55,7 +55,7 @@ static void taskRC(void* arg) {
       lastPacketUs = micros();
     }
 
-    // Failsafe: if we don't see *any* pulses for 100 ms, mark invalid
+    // Failsafe: if no pulses for 100 ms, mark invalid
     if ((micros() - lastPacketUs) > 100000) {
       if (xSemaphoreTake(gMutexRC, pdMS_TO_TICKS(2)) == pdTRUE) {
         gRC.valid = false;

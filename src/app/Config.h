@@ -2,7 +2,7 @@
   Config.h
   --------
   Global configuration constants for pin mappings, task priorities,
-  control limits, and timing values. Central place to tweak system settings.
+  control limits, and timing values.
 */
 
 #pragma once
@@ -77,13 +77,13 @@
 /** Barometer period in milliseconds */
 #define BARO_PERIOD_MS 145
 
-/** Control loop period in milliseconds (e.g. 5 ms = 200 Hz). */
+/** Control loop period in milliseconds (5 ms = 200 Hz). */
 #define CTRL_PERIOD_MS 5
 
-/** IMU read period in milliseconds (e.g. 5 ms = 200 Hz). */
+/** IMU read period in milliseconds (5 ms = 200 Hz). */
 #define IMU_PERIOD_MS  5
 
-/** Logging period in milliseconds (e.g. 100 ms = 10 Hz). */
+/** Logging period in milliseconds (100 ms = 10 Hz). */
 #define LOG_PERIOD_MS  100
 
 /**  Reference sea level pressure */
@@ -94,7 +94,7 @@
 
 /**
  * Maximum climb/descent rate command (m/s) at full stick deflection.
- * 1.5 m/s = 150 cm/s → smoother altitude response and reduced thrust spikes.
+ * 1.5 m/s = 150 cm/s
  */
 #define MAX_CLIMB_RATE 1.5f
 

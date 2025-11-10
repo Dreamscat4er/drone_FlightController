@@ -34,7 +34,7 @@ static void calibrateGyro() {
 static void calibrateAccelBias() {
   accelBiasX = accelBiasY = 0.0f;
   double sumZ = 0.0;
-  const int N = 2000;  // Match gyro samples
+  const int N = 2000;
   const float g = 9.80665f;
   for (int i = 0; i < N; i++) {
     sensors_event_t a, g, t;
@@ -42,7 +42,7 @@ static void calibrateAccelBias() {
     float ax = a.acceleration.x;
     float ay = a.acceleration.y;
     float az = a.acceleration.z;
-    // IMU is mounted upside down (your existing convention)
+    // IMU is mounted upside down
     ay = -ay;
     az = -az;
     accelBiasX += ax;
@@ -52,7 +52,7 @@ static void calibrateAccelBias() {
   }
   accelBiasX /= (float)N;
   accelBiasY /= (float)N;
-  accelBiasZ = (sumZ / (float)N) - g;  // Z bias = avg_az - g (assume level)
+  accelBiasZ = (sumZ / (float)N) - g;  // Z bias = avg_az - g
   Serial.printf("[IMU] Accel bias: (%.3f, %.3f, %.3f) m/s² (N=%d)\n",
                 (double)accelBiasX, (double)accelBiasY, (double)accelBiasZ, N);
 }
@@ -78,7 +78,7 @@ static void taskIMU(void* arg) {
   float angleRoll = 0, anglePitch = 0;
 
   // --- optional small LPF state for aZlin ---
-  static float aZlinLP = 0.0f;
+  static float aZlinLP = NAN;
   const float AZ_ALPHA = 0.10f;      // ~10 Hz at 200 Hz loop (tune as needed)
 
   const TickType_t period = pdMS_TO_TICKS(IMU_PERIOD_MS);
@@ -101,17 +101,17 @@ static void taskIMU(void* arg) {
     float accelY = a.acceleration.y;
     float accelZ = a.acceleration.z;
 
-    float gx = g.gyro.x - gyroBiasX;  // rad/s (sub before invert)
+    float gx = g.gyro.x - gyroBiasX;  // rad/s
     float gy = g.gyro.y - gyroBiasY;
     float gz = g.gyro.z - gyroBiasZ;
 
-    // IMU is mounted upside down (your existing convention)
+    // IMU is mounted upside down
     accelY = -accelY;
     accelZ = -accelZ;
     gy  = -gy;
     gz  = -gz;
 
-    // Subtract accel biases AFTER inversion (to match cal frame)
+    // Subtract accel biases AFTER inversion
     accelX -= accelBiasX;
     accelY -= accelBiasY;
     accelZ -= accelBiasZ;
@@ -120,7 +120,7 @@ static void taskIMU(void* arg) {
     float gyroY = applyDeadband(gy * RAD_TO_DEG, 0.5f);
     float gyroZ = applyDeadband(gz * RAD_TO_DEG, 0.5f);
 
-    // --- complementary filter for roll/pitch (as before) ---
+    // --- complementary filter for roll/pitch ---
     float pitchAcc = applyDeadband(atan2f(-accelX, sqrtf(accelY*accelY + accelZ*accelZ)) * RAD_TO_DEG, 5);
     float rollAcc  = applyDeadband(atan2f(accelY, accelZ) * RAD_TO_DEG, 5);
 
@@ -139,14 +139,31 @@ static void taskIMU(void* arg) {
       xSemaphoreGive(gMutexAngles);
     }
 
-    // --- NEW: compute world-Z linear acceleration (gravity removed) ---
-    // Only roll/pitch are needed for world-Z.
+    // ---- compute world-Z linear acceleration (gravity removed) ---
+    // The IMU provides acceleration in its body frame (sensor axes),
+    // but the acceleration along the world vertical (Z) axis is needed,
+    // i.e. how fast the vehicle is actually moving up/down relative to Earth.
+    //
+    // To convert from body-frame acceleration (ax, ay, az) to world-frame,
+    // the estimated orientation (roll, pitch) is used. Yaw does not affect
+    // vertical acceleration, so it can be ignored.
+
+    //   roll  = rotation about X-axis
+    //   pitch = rotation about Y-axis
+
+    //   sr = sin(roll)
+    //   cr = cos(roll)
+    //   sp = sin(pitch)
+    //   cp = cos(pitch)
+
+    // These values are then used to rotate the accelerometer vector.
+    // Gravity will be subtracted afterward to get linear acceleration.
     const float sr = sinf(angleRoll  * DEG_TO_RAD);
     const float cr = cosf(angleRoll  * DEG_TO_RAD);
     const float sp = sinf(anglePitch * DEG_TO_RAD);
     const float cp = cosf(anglePitch * DEG_TO_RAD);
 
-    // World Z acceleration from body accel (using your sign conventions):
+    // World Z acceleration from body accel:
     // a_z_world = ax*sp + ay*(-sr*cp) + az*(cr*cp)
     float aZ_world = accelX * sp + accelY * (-sr * cp) + accelZ * (cr * cp);
 
@@ -154,12 +171,16 @@ static void taskIMU(void* arg) {
     const float g0 = 9.80665f;
     float aZlin = aZ_world - g0;
 
-    // Light LPF to fight motor/prop vibration
-    aZlinLP += AZ_ALPHA * (aZlin - aZlinLP);
+    // Light LPF to fight motor/prop vibration. Need testing
+    /* if (isnan(aZlinLP)) {
+      aZlinLP = aZlin;
+    } else {
+      aZlinLP += AZ_ALPHA * (aZlin - aZlinLP);
+    } */
 
     // --- publish vertical acceleration for EKF ---
     if (xSemaphoreTake(gMutexVertAcc, pdMS_TO_TICKS(1)) == pdTRUE) {
-      gVertAcc.aZlin   = aZlinLP;        // m/s^2, +up, gravity removed
+      gVertAcc.aZlin   = isnan(aZlinLP) ? aZlin : aZlinLP;        // m/s^2, +up, gravity removed
       gVertAcc.stampUs = micros();
       gVertAcc.valid   = true;
       xSemaphoreGive(gMutexVertAcc);
