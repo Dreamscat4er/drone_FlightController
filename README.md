@@ -1,7 +1,7 @@
 This is a real-time flight controller for a brushed/brushless quad built on ESP32 + FreeRTOS.
 It reads an MPU6050 IMU and a BMP280 barometer, accepts PPM RC input, runs attitude, altitude, and yaw control loops, and uses a tiny EKF (Extended Kalman Filter) to estimate vertical velocity from IMU + barometer. 
 
-Electric schema
+##Electric schema##
 <img width="1097" height="831" alt="image" src="https://github.com/user-attachments/assets/0f85ddd5-65db-4d1e-a628-d790ffcbe023" />
 
 RTOS Tasks overview.
