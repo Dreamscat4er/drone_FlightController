@@ -3,8 +3,7 @@ It reads an MPU6050 IMU and a BMP280 barometer, accepts PPM RC input, runs attit
 
 Electric schema
 
-<img width="819" height="709" alt="image" src="https://github.com/user-attachments/assets/66e6692a-50a6-406a-9275-e607fc8c859e" />
-
+<img width="790" height="682" alt="image" src="https://github.com/user-attachments/assets/c9a8a0d0-5ca3-42dc-a21d-dc4311c23978" />
 
 RTOS Tasks overview.
 
