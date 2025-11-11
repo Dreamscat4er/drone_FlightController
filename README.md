@@ -2,6 +2,7 @@ This is a real-time flight controller for a brushless quad built on ESP32 + Free
 It reads an MPU6050 IMU and a BMP280 barometer, accepts PPM RC input, runs attitude, altitude, and yaw control loops, and uses a tiny EKF (Extended Kalman Filter) to estimate vertical velocity from IMU + barometer. 
 
 Electric schema
+
 <img width="819" height="709" alt="image" src="https://github.com/user-attachments/assets/66e6692a-50a6-406a-9275-e607fc8c859e" />
 
 
