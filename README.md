@@ -1,7 +1,7 @@
 This is a real-time flight controller for a brushless quad built on ESP32 + FreeRTOS.
 It reads an MPU6050 IMU and a BMP280 barometer, accepts PPM RC input, runs attitude, altitude, and yaw control loops, and uses a tiny EKF (Extended Kalman Filter) to estimate vertical velocity from IMU + barometer. 
 
-Electric schema
+**Electric schema**
 
 <img width="790" height="682" alt="image" src="https://github.com/user-attachments/assets/c9a8a0d0-5ca3-42dc-a21d-dc4311c23978" />
 
@@ -21,6 +21,13 @@ The flight controller operates on an ESP32 microcontroller, using FreeRTOS for m
 Task diagram.
 <img width="1506" height="766" alt="image" src="https://github.com/user-attachments/assets/0091d176-61ca-45e2-9d97-a4d488f320dc" />
 
+**Attitude PID schema**
+
+<img width="928" height="439" alt="Screenshot 2025-11-12 at 10 05 14" src="https://github.com/user-attachments/assets/0de035de-0cc7-4653-99bf-d7420ad7c819" />
+
+**Vertical velocity PID schema**
+
+<img width="906" height="432" alt="Screenshot 2025-11-12 at 10 07 32" src="https://github.com/user-attachments/assets/ada7d139-2597-418a-82b9-9a879b9f0053" />
 
 **Links:**
 1. [ESP32](https://mischianti.org/vcc-gnd-studio-yd-esp32-s3-devkitc-1-clone-high-resolution-pinout-and-specs/)
