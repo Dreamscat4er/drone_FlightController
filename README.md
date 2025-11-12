@@ -18,16 +18,16 @@ The flight controller operates on an ESP32 microcontroller, using FreeRTOS for m
 - **TaskLog** *(Priority: `PRIO_LOG`, Core: `PRO`)* — Outputs telemetry for monitoring.
 
 
-Task diagram.
+**Task schema**
 <img width="1506" height="766" alt="image" src="https://github.com/user-attachments/assets/0091d176-61ca-45e2-9d97-a4d488f320dc" />
 
 **Attitude PID schema**
 
-<img width="928" height="439" alt="Screenshot 2025-11-12 at 10 05 14" src="https://github.com/user-attachments/assets/0de035de-0cc7-4653-99bf-d7420ad7c819" />
+<img width="940" height="387" alt="Screenshot 2025-11-12 at 10 08 43" src="https://github.com/user-attachments/assets/e2b3cc3b-2956-4080-9e8c-a3bcc9bd78d3" />
 
 **Vertical velocity PID schema**
 
-<img width="906" height="432" alt="Screenshot 2025-11-12 at 10 07 32" src="https://github.com/user-attachments/assets/ada7d139-2597-418a-82b9-9a879b9f0053" />
+<img width="937" height="408" alt="Screenshot 2025-11-12 at 10 09 43" src="https://github.com/user-attachments/assets/69b3c096-c4fb-45ed-bf2d-aa9d1f131946" />
 
 **Links:**
 1. [ESP32](https://mischianti.org/vcc-gnd-studio-yd-esp32-s3-devkitc-1-clone-high-resolution-pinout-and-specs/)
